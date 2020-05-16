@@ -49,58 +49,119 @@ def _analyse_track():
     global audio
 
     loudness = [s.loudness for s in audio.sections]
-    treshold = np.mean(loudness)
+    threshold = np.mean(loudness)
 
-    return treshold
+    return threshold
 
-def _section_type():
-    pass
 
 
 def _set_audio_data():
     global beats
+    global bars
     global sections
     global audio
     
     # create list of start times for fast loops
     beats = [float(beat.start) for beat in audio.beats]
+    bars = [float(bar.start) for bar in audio.bars]
     sections = [float(section.start) for section in audio.sections]
-    print(f"beats {len(beats)}, sections {len(sections)}")
+
+    print(f"beats {len(beats)}, bars {len(bars)}, sections {len(sections)}")
 
 
 
-def beat_detection(progressed_time, treshold):
+def section_detection(progressed_time, threshold):
+
+    global audio
+    global sections
+
+    start = time.time()
+    current_section = find_previous_section(progressed_time,sections)
+
+    if audio.sections[current_section].loudness >= threshold:
+        end = time.time()
+        diff = end-start
+        beat_detection(progressed_time+diff)
+
+    else:
+        end = time.time()
+        diff = end-start
+        bar_detection(progressed_time+diff)
+
+        
+
+
+def bar_detection(progressed_time):
+    """
+    bar type detection, same idea as beats could be merged in future i guess
+    """
+
+    global audio
+    global bars
+
+
+    start = time.time()
+    next_bar = find_previous_section(progressed_time,bars) + 1
+    
+
+    if next_bar >= len(audio.bars):
+        pass
+
+    else:
+        data = {}
+        time_to_bar = audio.bars[next_bar].start - progressed_time                  
+        end = time.time()
+        diff = end - start
+
+        #queue opdracht:
+        data["target_time"] = (time_to_bar-diff) + time.time()
+        data["type"] = 'bar'
+        data["duration"] = audio.bars[next_bar].duration
+        queue.put(data)
+
+        #wait print statement
+        time.sleep(time_to_bar - diff)
+
+        print(f"BAR {next_bar}/{len(bars)}", end="\n")
+
+
+
+    pass
+
+
+def beat_detection(progressed_time):
     """
     progressed_time (s) and finds next beat using find_previous_section()
     """
     global audio
     global beats
-    global sections
+
 
     start = time.time()
     next_beat = find_previous_section(progressed_time,beats) + 1
-    current_section = find_previous_section(progressed_time,sections)
-
-    if audio.sections[current_section].loudness > treshold:
-        section_type = "BEATS"
-    else:
-        section_type = "BREAKS"
-
+    
 
     if next_beat >= len(audio.beats):
         pass
 
     else:
+        data = {}
         time_to_beat = audio.beats[next_beat].start - progressed_time                   #check if time is more than bpm interval
         end = time.time()
         diff = end - start
+        
+
+        #queue opdracht:
+        data["target_time"] = (time_to_beat-diff) + time.time()
+        data["type"] = 'beat'
+        data["duration"] = audio.beats[next_beat].duration
+
+        queue.put(data)
+
         time.sleep(time_to_beat - diff)
 
-        print(f"SECTION: {section_type} : {current_section}/{len(sections)} | BEAT {next_beat}/{len(beats)}", end="\r")
+        print(f"BEAT {next_beat}/{len(beats)}", end="\n")
 
-        # not final return just testing
-
-        return section_type
 
     # return time.sleep(1)
 
@@ -124,9 +185,9 @@ def spotify_analysis(spotify, queue):
 
                 #set the track data
                 _set_audio_data()
-                section_treshold = _analyse_track()
+                section_threshold = _analyse_track()
 
-                print(f"Song:{current.item.name} - Artist(s):{[a.name for a in current.item.artists]} - Song treshold = {section_treshold}" , end='\n')
+                print(f"Song:{current.item.name} - Artist(s):{[a.name for a in current.item.artists]} - Song treshold = {section_threshold}" , end='\n')
                 previous = current.item.id
                 
             else:
@@ -142,15 +203,15 @@ def spotify_analysis(spotify, queue):
                     # print(f"Progress: ({progress+passed_time*1000}/{audio.track['duration']*1000}) passed time {passed_time}", end='\r')
                     
                     # Beat detections --> artnet connection
-                    section_type = beat_detection(progress/1000+passed_time, section_treshold) 
+                    section_detection(progress/1000+passed_time, section_threshold) 
 
-                    if section_type:
-                        if queue.empty():
-                            queue.put(section_type)
-                        else:
-                            pass
-                    else:
-                        pass
+                    # if section_type:
+                    #     if queue.empty():
+                    #         queue.put(section_type)
+                    #     else:
+                    #         pass
+                    # else:
+                    #     pass
 
  
                     # Time the duration and adjust progress
@@ -170,10 +231,8 @@ def _init_artnet():
     u.start()
     return u
 
-def _fade(u):
+def _fade(u, duration, steps=100):
     """Deze unit is voor tests, moet meer input krijgen ect..."""
-    steps = 100  # fades steps
-    duration = 2 #secondes
 
     fades_values = np.linspace(255,0,steps)
     inv_fade = np.flip(fades_values,0)
@@ -190,17 +249,22 @@ def _fade(u):
 
 
 
-def _beat(u):
-    r = np.random.randint(0,255)
-    g = np.random.randint(0,255)
-    b = np.random.randint(0,255)
+def _beat(u, duration):
+    # r = np.random.randint(0,255)
+    # g = np.random.randint(0,255)
+    # b = np.random.randint(0,255)
 
     u.clear()
-    # r,g,b=255,0,0
+    r,g,b=255,0,0
     u.set_rgb(1,r,g,b)
     u.set_rgb(7,r,g,b)
-    # time.sleep(0.2)
-    # u.blackout
+    u.show()
+    time.sleep(duration/2)
+    r = 0
+    u.set_rgb(1,r,g,b)
+    u.set_rgb(7,r,g,b)
+
+    u.show()
 
 
 
@@ -220,15 +284,27 @@ def artnet_control(queue):
             time.sleep(0.1)
             pass
         else:
-            print("ik krijg nu", queue.get())
-            if queue.get() == "BEATS":
-                _beat(universe)
-                print("beaats!")
-            elif queue.get() == "BREAKS":
-                _fade(universe)
-                print("FAdddeess")
-            else:
-                print('Geen idee')
+            # print("ik krijg nu", queue.get(), end='\r')
+
+            data = queue.get()
+            
+            if data["type"] == 'bar':
+                print(data)
+                target = data["target_time"]
+                while time.time() < target:
+                    time.sleep(0.05)
+                    # print(f"waiting for {time.time() - target}")
+                print("Sending BAR")
+                _fade(universe, duration=data["duration"])
+
+            if data["type"] == 'beat':
+                print(data)
+                target = data["target_time"]
+                while time.time() < target:
+                    time.sleep(0.05)
+                    # print(f"waiting for {time.time() - target}")
+                print("Sending BEAT")
+                _beat(universe, duration=data["duration"])
 
     return
 
@@ -248,7 +324,7 @@ if __name__ == "__main__":
 
     # set global var where current audio data is stored
     # this is global because needs to be used in multiple processes
-    audio,beats,sections = None,None,None
+    audio,beats,bars,sections = None,None,None,None
 
     # Define the 2 processes
     main_process = Process(target=spotify_analysis, args=[spotify, queue])
